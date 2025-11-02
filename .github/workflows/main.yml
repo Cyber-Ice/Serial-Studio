@@ -1,24 +1,44 @@
 name: Build Windows
 on: [workflow_dispatch, push]
+
 jobs:
   win:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Ensure cl.exe toolchain is active
+      - name: Enable MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # Qt 6 + required modules (SerialPort, Charts, Graphs). Cache speeds up repeats.
       - name: Install Qt 6
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.*'
           target: desktop
           arch: win64_msvc2022_64
-          modules: 'qtserialport qtcharts'
+          modules: 'qtserialport qtcharts qtgraphs'
+          cache: true
+
+      # Configure with Ninja Multi-Config; make sure CMake finds the Qt we just installed
       - name: Configure
-        run: cmake -S . -B build -G "Ninja Multi-Config" -DCMAKE_BUILD_TYPE=Release
+        run: >
+          cmake -S . -B build -G "Ninja Multi-Config"
+          -DCMAKE_BUILD_TYPE=Release
+          -DPRODUCTION_OPTIMIZATION=ON
+          -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+
       - name: Build
         run: cmake --build build --config Release --parallel
+
+      # Bundle Qt DLLs & QML deps next to the exe
       - name: Deploy Qt DLLs
         shell: bash
         run: '"$QT_ROOT_DIR/bin/windeployqt.exe" --release --qmldir src/ui build/Release/Serial-Studio.exe'
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
