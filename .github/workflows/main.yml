@@ -1,8 +1,15 @@
-name: Build Windows
-on: [workflow_dispatch, push]
+name: Build & Release Windows
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    tags: ["v*", "V*"]
+
+permissions:
+  contents: write  # needed to create/upload GitHub Releases
 
 jobs:
-  win:
+  build-win:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -13,18 +20,17 @@ jobs:
         with:
           arch: x64
 
-      # Install Qt + required modules for Graphs (needs Quick3D + ShaderTools)
+      # Qt 6 + required modules
+      # Graphs -> Quick3D; Quick3D -> ShaderTools; Bluetooth -> Connectivity
       - name: Install Qt 6
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.*'
           target: desktop
           arch: win64_msvc2022_64
-          # NOTE: Graphs requires Quick3D, which in turn needs ShaderTools
           modules: 'qtserialport qtcharts qtgraphs qtquick3d qtshadertools qtconnectivity'
           cache: true
 
-      # Configure (ensure CMake uses the Qt we installed)
       - name: Configure
         run: >
           cmake -S . -B build -G "Ninja Multi-Config"
@@ -35,13 +41,54 @@ jobs:
       - name: Build
         run: cmake --build build --config Release --parallel
 
-      # Bundle Qt DLLs & QML deps next to the exe
+      # Robustly locate the Release .exe (path can vary by target layout)
+      - name: Locate built .exe
+        shell: pwsh
+        run: |
+          Write-Host "Searching for Release .exe under 'build'..."
+          $candidates = Get-ChildItem -Path build -Recurse -Filter *.exe | Where-Object { $_.FullName -match '\\Release\\' }
+          $exe = $candidates | Where-Object { $_.Name -match 'Serial.*Studio.*\.exe' } | Select-Object -First 1
+          if (-not $exe) { $exe = $candidates | Select-Object -First 1 }
+          if (-not $exe) {
+            Get-ChildItem -Path build -Recurse -Filter *.exe | Format-Table FullName
+            throw "Release exe not found"
+          }
+          "EXE_PATH=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Found exe: $($exe.FullName)"
+
       - name: Deploy Qt DLLs
-        shell: bash
-        run: '"$QT_ROOT_DIR/bin/windeployqt.exe" --release --qmldir src/ui build/Release/Serial-Studio.exe'
+        shell: pwsh
+        run: |
+          & "$env:QT_ROOT_DIR\bin\windeployqt.exe" --release --qmldir "$env:GITHUB_WORKSPACE\src\ui" "$env:EXE_PATH"
+
+      - name: Package artifact
+        shell: pwsh
+        run: |
+          $outdir = [System.IO.Path]::GetDirectoryName($env:EXE_PATH)
+          $zip = "$env:RUNNER_TEMP\Serial-Studio-windows.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "$outdir\*" -DestinationPath $zip
+          "ZIP_PATH=$zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Serial-Studio-windows
-          path: build/Release/**
+          path: ${{ env.ZIP_PATH }}
+
+  release:
+    needs: build-win
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-latest
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Serial-Studio-windows
+          path: dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true
