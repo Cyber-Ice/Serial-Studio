@@ -13,17 +13,18 @@ jobs:
         with:
           arch: x64
 
-      # Qt 6 + required modules (SerialPort, Charts, Graphs). Cache speeds up repeats.
+      # Install Qt + required modules for Graphs (needs Quick3D + ShaderTools)
       - name: Install Qt 6
         uses: jurplel/install-qt-action@v4
         with:
           version: '6.8.*'
           target: desktop
           arch: win64_msvc2022_64
-          modules: 'qtserialport qtcharts qtgraphs'
+          # NOTE: Graphs requires Quick3D, which in turn needs ShaderTools
+          modules: 'qtserialport qtcharts qtgraphs qtquick3d qtshadertools'
           cache: true
 
-      # Configure with Ninja Multi-Config; make sure CMake finds the Qt we just installed
+      # Configure (ensure CMake uses the Qt we installed)
       - name: Configure
         run: >
           cmake -S . -B build -G "Ninja Multi-Config"
