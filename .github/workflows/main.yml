@@ -21,7 +21,7 @@ jobs:
           target: desktop
           arch: win64_msvc2022_64
           # NOTE: Graphs requires Quick3D, which in turn needs ShaderTools
-          modules: 'qtserialport qtcharts qtgraphs qtquick3d qtshadertools'
+          modules: 'qtserialport qtcharts qtgraphs qtquick3d qtshadertools qtconnectivity'
           cache: true
 
       # Configure (ensure CMake uses the Qt we installed)
