@@ -1,0 +1,26 @@
+name: Build Windows
+on: [workflow_dispatch, push]
+jobs:
+  win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt 6
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.*'
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: 'qtserialport qtcharts'
+      - name: Configure
+        run: cmake -S . -B build -G "Ninja Multi-Config" -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Deploy Qt DLLs
+        shell: bash
+        run: '"$QT_ROOT_DIR/bin/windeployqt.exe" --release --qmldir src/ui build/Release/Serial-Studio.exe'
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Serial-Studio-windows
+          path: build/Release/**
